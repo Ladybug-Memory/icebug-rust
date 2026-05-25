@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Rust tests
+    runs-on: macos-15
+
+    steps:
+      - name: Check out bindings
+        uses: actions/checkout@v4
+        with:
+          path: icebug-rust
+
+      - name: Install native dependencies
+        run: brew install apache-arrow libomp llvm pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        working-directory: icebug-rust
+        run: cargo fmt -- --check
+
+      - name: Run tests
+        working-directory: icebug-rust
+        run: cargo test --locked

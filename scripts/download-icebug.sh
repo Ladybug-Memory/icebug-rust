@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# download-icebug.sh - fetch the platform-specific icebug prebuilt into vendor/
+# Usage: ./scripts/download-icebug.sh [version]
+#   version  optional tag, e.g. "12.8" (default: 12.8)
+set -euo pipefail
+
+REPO="Ladybug-Memory/icebug"
+VENDOR_DIR="$(cd "$(dirname "$0")/.." && pwd)/vendor"
+DEFAULT_TAG="12.8"
+
+if [[ "${1:-}" != "" ]]; then
+  TAG="$1"
+else
+  TAG="${ICEBUG_VERSION:-${DEFAULT_TAG}}"
+fi
+BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+
+echo "icebug release: ${TAG}"
+
+OS_RAW="$(uname -s)"
+ARCH_RAW="$(uname -m)"
+
+case "${OS_RAW}" in
+  Darwin) OS="macos" ;;
+  Linux) OS="linux" ;;
+  MINGW* | MSYS* | CYGWIN*) OS="win" ;;
+  *)
+    echo "error: unsupported OS '${OS_RAW}'" >&2
+    exit 1
+    ;;
+esac
+
+case "${ARCH_RAW}" in
+  arm64 | aarch64) ARCH="arm64" ;;
+  x86_64)
+    ARCH="x86_64"
+    [[ "${OS}" == "win" ]] && ARCH="amd64"
+    ;;
+  *)
+    echo "error: unsupported architecture '${ARCH_RAW}' on ${OS_RAW}" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "${OS}" == "win" ]]; then
+  ASSET="icebug-${OS}-${ARCH}.zip"
+else
+  ASSET="icebug-${OS}-${ARCH}.tar.gz"
+fi
+
+DOWNLOAD_URL="${BASE_URL}/${ASSET}"
+ARCHIVE="${VENDOR_DIR}/${ASSET}"
+
+echo "Asset:  ${ASSET}"
+echo "URL:    ${DOWNLOAD_URL}"
+echo "Vendor: ${VENDOR_DIR}"
+
+mkdir -p "${VENDOR_DIR}"
+echo "Downloading..."
+curl -fSL --progress-bar -o "${ARCHIVE}" "${DOWNLOAD_URL}"
+
+echo "Extracting..."
+rm -rf "${VENDOR_DIR}/include" "${VENDOR_DIR}/lib"
+
+if [[ "${ASSET}" == *.zip ]]; then
+  unzip -q "${ARCHIVE}" -d "${VENDOR_DIR}"
+else
+  tar -xzf "${ARCHIVE}" -C "${VENDOR_DIR}"
+fi
+
+rm "${ARCHIVE}"
+
+echo "Done. Contents of ${VENDOR_DIR}:"
+ls "${VENDOR_DIR}"

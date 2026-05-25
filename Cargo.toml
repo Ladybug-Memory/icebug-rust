@@ -1,0 +1,20 @@
+[package]
+name = "icebug"
+version = "0.1.0"
+edition = "2021"
+description = "Rust bindings for Icebug graph analytics"
+license = "MIT"
+links = "networkit"
+
+[dependencies]
+arrow-array = "56"
+arrow-buffer = "56"
+cxx = "1"
+
+[build-dependencies]
+cc = "1"
+cxx-build = "1"
+pkg-config = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
