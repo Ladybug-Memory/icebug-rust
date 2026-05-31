@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # download-icebug.sh - fetch the platform-specific icebug prebuilt into vendor/
 # Usage: ./scripts/download-icebug.sh [version]
-#   version  optional tag, e.g. "12.8" (default: 12.8)
+#   version  optional tag, e.g. "12.9" (default: 12.9)
 set -euo pipefail
 
 REPO="Ladybug-Memory/icebug"
 VENDOR_DIR="$(cd "$(dirname "$0")/.." && pwd)/vendor"
-DEFAULT_TAG="12.8"
+DEFAULT_TAG="12.9"
 
 if [[ "${1:-}" != "" ]]; then
   TAG="$1"

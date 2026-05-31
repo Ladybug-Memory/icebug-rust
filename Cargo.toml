@@ -1,6 +1,6 @@
 [package]
 name = "icebug"
-version = "0.1.0"
+version = "12.9.0"
 edition = "2021"
 description = "Rust bindings for Icebug graph analytics"
 license = "MIT"
