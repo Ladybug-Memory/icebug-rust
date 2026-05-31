@@ -6,7 +6,7 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let icebug_dir = env::var_os("ICEBUG_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| manifest_dir.join("vendor"));
+        .unwrap_or_else(|| default_icebug_dir(&manifest_dir));
 
     println!("cargo:rerun-if-env-changed=ICEBUG_DIR");
     println!("cargo:rerun-if-env-changed=ICEBUG_VERSION");
@@ -100,11 +100,20 @@ fn ensure_icebug_vendor(manifest_dir: &PathBuf, icebug_dir: &PathBuf) {
     let script = manifest_dir.join("scripts/download-icebug.sh");
     let status = Command::new("bash")
         .arg(script)
+        .env("ICEBUG_VENDOR_DIR", icebug_dir)
         .current_dir(manifest_dir)
         .status()
         .expect("failed to run scripts/download-icebug.sh");
 
     if !status.success() {
         panic!("scripts/download-icebug.sh failed with status {status}");
+    }
+}
+
+fn default_icebug_dir(manifest_dir: &PathBuf) -> PathBuf {
+    if manifest_dir.join(".cargo_vcs_info.json").exists() {
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("icebug")
+    } else {
+        manifest_dir.join("vendor")
     }
 }

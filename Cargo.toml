@@ -4,6 +4,20 @@ version = "12.9.0"
 edition = "2021"
 description = "Rust bindings for Icebug graph analytics"
 license = "MIT"
+repository = "https://github.com/Ladybug-Memory/icebug-rust"
+homepage = "https://github.com/Ladybug-Memory/icebug"
+documentation = "https://docs.rs/icebug"
+keywords = ["graph", "analytics", "arrow", "bindings", "networkit"]
+categories = ["api-bindings", "algorithms", "science"]
+include = [
+    "/Cargo.toml",
+    "/README.md",
+    "/build.rs",
+    "/include",
+    "/scripts/download-icebug.sh",
+    "/src",
+    "/tests",
+]
 links = "networkit"
 
 [dependencies]

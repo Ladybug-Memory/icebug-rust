@@ -5,7 +5,7 @@
 set -euo pipefail
 
 REPO="Ladybug-Memory/icebug"
-VENDOR_DIR="$(cd "$(dirname "$0")/.." && pwd)/vendor"
+VENDOR_DIR="${ICEBUG_VENDOR_DIR:-$(cd "$(dirname "$0")/.." && pwd)/vendor}"
 DEFAULT_TAG="12.9"
 
 if [[ "${1:-}" != "" ]]; then
