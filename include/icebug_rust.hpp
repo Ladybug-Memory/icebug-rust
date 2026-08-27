@@ -9,10 +9,12 @@
 #include <networkit/community/ParallelLeidenView.hpp>
 #include <networkit/components/ConnectedComponents.hpp>
 #include <networkit/graph/Graph.hpp>
+#include <networkit/graph/GraphR.hpp>
 #include <networkit/graph/GraphW.hpp>
 
 #include <memory>
 #include <string>
+#include <variant>
 
 namespace icebug_rust {
 
@@ -23,14 +25,19 @@ struct PartitionResult;
 
 class IcebugGraph {
 public:
-    explicit IcebugGraph(std::unique_ptr<NetworKit::Graph> graph);
+    explicit IcebugGraph(std::unique_ptr<NetworKit::GraphW> graph);
+    explicit IcebugGraph(std::unique_ptr<NetworKit::GraphR> graph);
 
     NetworKit::Graph &graph();
     const NetworKit::Graph &graph() const;
     NetworKit::GraphW &mutable_graph();
 
 private:
-    std::unique_ptr<NetworKit::Graph> graph_;
+    // Owns the concrete graph storage; the view_ handle references one of these arms.
+    std::variant<std::unique_ptr<NetworKit::GraphW>, std::unique_ptr<NetworKit::GraphR>> storage_;
+    // Non-owning handle (NetworKit::Graph == ReferenceGraph) kept stable so algorithms that
+    // store a `const Graph &` bind to a member, not a temporary.
+    NetworKit::Graph view_;
 };
 
 class Betweenness {

@@ -71,6 +71,10 @@ rust::Vec<RankingEntry> copy_ranking(const std::vector<std::pair<node, double>> 
     return out;
 }
 
+Graph make_view(const std::variant<std::unique_ptr<GraphW>, std::unique_ptr<GraphR>> &v) {
+    return std::visit([](const auto &g) -> Graph { return Graph(*g); }, v);
+}
+
 PartitionResult partition_result(const NetworKit::Partition &partition) {
     const auto &vec = partition.getVector();
     rust::Vec<uint64_t> membership;
@@ -83,17 +87,21 @@ PartitionResult partition_result(const NetworKit::Partition &partition) {
 
 } // namespace
 
-IcebugGraph::IcebugGraph(std::unique_ptr<Graph> graph) : graph_(std::move(graph)) {}
+IcebugGraph::IcebugGraph(std::unique_ptr<GraphW> graph)
+    : storage_(std::move(graph)), view_(make_view(storage_)) {}
 
-Graph &IcebugGraph::graph() { return *graph_; }
-const Graph &IcebugGraph::graph() const { return *graph_; }
+IcebugGraph::IcebugGraph(std::unique_ptr<GraphR> graph)
+    : storage_(std::move(graph)), view_(make_view(storage_)) {}
+
+Graph &IcebugGraph::graph() { return view_; }
+const Graph &IcebugGraph::graph() const { return view_; }
 
 GraphW &IcebugGraph::mutable_graph() {
-    auto *graph = dynamic_cast<GraphW *>(graph_.get());
-    if (graph == nullptr) {
-        throw std::runtime_error("operation requires mutable Graph, not GraphR");
+    auto *gw = std::get_if<std::unique_ptr<GraphW>>(&storage_);
+    if (gw == nullptr) {
+        throw std::runtime_error("operation requires a mutable GraphW, not a read-only GraphR");
     }
-    return *graph;
+    return **gw;
 }
 
 Betweenness::Betweenness(const IcebugGraph &graph, bool normalized, bool compute_edge_centrality)
