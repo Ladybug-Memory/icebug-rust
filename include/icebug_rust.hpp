@@ -11,6 +11,7 @@
 #include <networkit/graph/Graph.hpp>
 #include <networkit/graph/GraphR.hpp>
 #include <networkit/graph/GraphW.hpp>
+#include <networkit/graph/InducedSubgraphView.hpp>
 
 #include <memory>
 #include <string>
@@ -27,14 +28,32 @@ class IcebugGraph {
 public:
     explicit IcebugGraph(std::unique_ptr<NetworKit::GraphW> graph);
     explicit IcebugGraph(std::unique_ptr<NetworKit::GraphR> graph);
+    explicit IcebugGraph(std::unique_ptr<NetworKit::InducedSubgraphView<NetworKit::GraphW>> view);
+    explicit IcebugGraph(std::unique_ptr<NetworKit::InducedSubgraphView<NetworKit::GraphR>> view);
 
     NetworKit::Graph &graph();
     const NetworKit::Graph &graph() const;
     NetworKit::GraphW &mutable_graph();
 
+    // Induced-subgraph operations. Each throws if this IcebugGraph does not currently hold an
+    // InducedSubgraphView. induced_subgraph builds a new view over *this; the base must outlive
+    // the returned view (enforced on the Rust side via the InducedSubgraph lifetime).
+    std::unique_ptr<IcebugGraph> induced_subgraph(rust::Slice<const uint64_t> nodes) const;
+    void induced_add_nodes(rust::Slice<const uint64_t> nodes);
+    void induced_remove_nodes(rust::Slice<const uint64_t> nodes);
+    rust::Vec<uint64_t> induced_node_subset() const;
+    rust::Vec<uint64_t> induced_frontier() const;
+    std::unique_ptr<IcebugGraph> induced_realize(bool compact) const;
+
 private:
-    // Owns the concrete graph storage; the view_ handle references one of these arms.
-    std::variant<std::unique_ptr<NetworKit::GraphW>, std::unique_ptr<NetworKit::GraphR>> storage_;
+    // Owns the concrete graph storage; the view_ handle references one of these arms. A view
+    // arm borrows its base graph, which must outlive the view -- the Rust InducedSubgraph wrapper
+    // ties the borrow with a lifetime parameter.
+    std::variant<std::unique_ptr<NetworKit::GraphW>,
+                std::unique_ptr<NetworKit::GraphR>,
+                std::unique_ptr<NetworKit::InducedSubgraphView<NetworKit::GraphW>>,
+                std::unique_ptr<NetworKit::InducedSubgraphView<NetworKit::GraphR>>>
+        storage_;
     // Non-owning handle (NetworKit::Graph == ReferenceGraph) kept stable so algorithms that
     // store a `const Graph &` bind to a member, not a temporary.
     NetworKit::Graph view_;
@@ -94,6 +113,14 @@ std::unique_ptr<IcebugGraph> read_metis(rust::Str path);
 std::unique_ptr<IcebugGraph> read_edge_list(rust::Str path, rust::Str separator,
                                             uint64_t first_node, bool directed,
                                             rust::Str comment_prefix);
+
+std::unique_ptr<IcebugGraph> new_induced_subgraph(const IcebugGraph &base,
+                                                  rust::Slice<const uint64_t> nodes);
+void induced_add_nodes(IcebugGraph &graph, rust::Slice<const uint64_t> nodes);
+void induced_remove_nodes(IcebugGraph &graph, rust::Slice<const uint64_t> nodes);
+rust::Vec<uint64_t> induced_node_subset(const IcebugGraph &graph);
+rust::Vec<uint64_t> induced_frontier(const IcebugGraph &graph);
+std::unique_ptr<IcebugGraph> induced_realize(const IcebugGraph &graph, bool compact);
 
 uint64_t graph_number_of_nodes(const IcebugGraph &graph);
 uint64_t graph_number_of_edges(const IcebugGraph &graph);

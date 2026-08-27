@@ -54,6 +54,10 @@ mod ffi {
             out_weights: &[f64],
             in_weights: &[f64],
         ) -> Result<UniquePtr<IcebugGraph>>;
+        fn new_induced_subgraph(
+            base: &IcebugGraph,
+            nodes: &[u64],
+        ) -> Result<UniquePtr<IcebugGraph>>;
         fn read_metis(path: &str) -> Result<UniquePtr<IcebugGraph>>;
         fn read_edge_list(
             path: &str,
@@ -93,6 +97,12 @@ mod ffi {
         fn graph_neighbors(graph: &IcebugGraph, u: u64) -> Result<Vec<u64>>;
         fn graph_edges(graph: &IcebugGraph) -> Result<Vec<Edge>>;
         fn graph_weighted_edges(graph: &IcebugGraph) -> Result<Vec<WeightedEdge>>;
+
+        fn induced_add_nodes(graph: Pin<&mut IcebugGraph>, nodes: &[u64]) -> Result<()>;
+        fn induced_remove_nodes(graph: Pin<&mut IcebugGraph>, nodes: &[u64]) -> Result<()>;
+        fn induced_node_subset(graph: &IcebugGraph) -> Result<Vec<u64>>;
+        fn induced_frontier(graph: &IcebugGraph) -> Result<Vec<u64>>;
+        fn induced_realize(graph: &IcebugGraph, compact: bool) -> Result<UniquePtr<IcebugGraph>>;
 
         fn new_betweenness(
             graph: &IcebugGraph,
@@ -375,6 +385,93 @@ impl GraphR {
 impl GraphRef for GraphR {
     fn raw(&self) -> &ffi::IcebugGraph {
         self.raw.as_ref().expect("graph handle is not null")
+    }
+}
+
+/// A zero-copy induced subgraph over a base graph (Graph or GraphR).
+///
+/// The view keeps the base graph's node ids, so results computed on it map straight back onto
+/// the base. The base graph is borrowed for the lifetime `'a`, which enforces at the type
+/// level that the base outlives the view -- a constraint the underlying C++ view cannot check.
+///
+/// Because `InducedSubgraph` implements [`GraphRef`], it inherits the full [`GraphQuery`]
+/// interface and can be passed to any algorithm that accepts `&impl GraphRef` (Betweenness,
+/// PageRank, DegreeCentrality, ConnectedComponents, Louvain, Leiden).
+pub struct InducedSubgraph<'a> {
+    raw: cxx::UniquePtr<ffi::IcebugGraph>,
+    _base: PhantomData<&'a dyn GraphRef>,
+}
+
+impl<'a> InducedSubgraph<'a> {
+    /// Builds a view over `base` spanning `nodes`. Node ids must exist in the base graph;
+    /// duplicates are ignored. The view starts out containing exactly those nodes.
+    pub fn new(base: &'a impl GraphRef, nodes: &[u64]) -> Result<Self> {
+        Ok(Self {
+            raw: ffi::new_induced_subgraph(base.raw(), nodes)?,
+            _base: PhantomData,
+        })
+    }
+
+    /// Adds `nodes` to the subset. Unknown ids are rejected; already-present ids are ignored.
+    pub fn add_nodes(&mut self, nodes: &[u64]) -> Result<()> {
+        ffi::induced_add_nodes(self.raw.pin_mut(), nodes).map_err(Error::from)
+    }
+
+    /// Adds the single node `u` to the subset.
+    pub fn add_node(&mut self, u: u64) -> Result<()> {
+        self.add_nodes(&[u])
+    }
+
+    /// Removes `nodes` from the subset. Absent ids are ignored.
+    pub fn remove_nodes(&mut self, nodes: &[u64]) -> Result<()> {
+        ffi::induced_remove_nodes(self.raw.pin_mut(), nodes).map_err(Error::from)
+    }
+
+    /// Removes the single node `u` from the subset.
+    pub fn remove_node(&mut self, u: u64) -> Result<()> {
+        self.remove_nodes(&[u])
+    }
+
+    /// The members of the subgraph, in ascending id order.
+    pub fn node_subset(&self) -> Result<Vec<u64>> {
+        ffi::induced_node_subset(
+            self.raw
+                .as_ref()
+                .expect("induced subgraph handle is not null"),
+        )
+        .map_err(Error::from)
+    }
+
+    /// Nodes outside the view that are out-neighbors of a node inside it, ascending and unique.
+    /// This is the search frontier when the view grows one layer at a time.
+    pub fn frontier(&self) -> Result<Vec<u64>> {
+        ffi::induced_frontier(
+            self.raw
+                .as_ref()
+                .expect("induced subgraph handle is not null"),
+        )
+        .map_err(Error::from)
+    }
+
+    /// Materializes the view into a fresh mutable `Graph`. When `compact` is true the new graph
+    /// gets contiguous node ids starting at 0 instead of the base ids.
+    pub fn realize(&self, compact: bool) -> Result<Graph> {
+        Ok(Graph {
+            raw: ffi::induced_realize(
+                self.raw
+                    .as_ref()
+                    .expect("induced subgraph handle is not null"),
+                compact,
+            )?,
+        })
+    }
+}
+
+impl<'a> GraphRef for InducedSubgraph<'a> {
+    fn raw(&self) -> &ffi::IcebugGraph {
+        self.raw
+            .as_ref()
+            .expect("induced subgraph handle is not null")
     }
 }
 

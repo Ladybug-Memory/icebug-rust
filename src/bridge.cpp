@@ -10,6 +10,7 @@
 #include <networkit/components/ConnectedComponents.hpp>
 #include <networkit/graph/GraphR.hpp>
 #include <networkit/graph/GraphW.hpp>
+#include <networkit/graph/InducedSubgraphView.hpp>
 #include <networkit/io/EdgeListReader.hpp>
 #include <networkit/io/METISGraphReader.hpp>
 
@@ -18,6 +19,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -29,6 +31,7 @@ using NetworKit::edgeweight;
 using NetworKit::Graph;
 using NetworKit::GraphR;
 using NetworKit::GraphW;
+using NetworKit::InducedSubgraphView;
 using NetworKit::node;
 
 std::string to_string(rust::Str value) { return std::string(value.data(), value.size()); }
@@ -71,7 +74,10 @@ rust::Vec<RankingEntry> copy_ranking(const std::vector<std::pair<node, double>> 
     return out;
 }
 
-Graph make_view(const std::variant<std::unique_ptr<GraphW>, std::unique_ptr<GraphR>> &v) {
+// Builds the non-owning ReferenceGraph handle from whichever arm the variant carries.
+// ReferenceGraph has an explicit constructor for every arm (GraphW, GraphR, and the two
+// InducedSubgraphView instantiations), so a single visitor covers them all.
+Graph make_view(const auto &v) {
     return std::visit([](const auto &g) -> Graph { return Graph(*g); }, v);
 }
 
@@ -93,15 +99,133 @@ IcebugGraph::IcebugGraph(std::unique_ptr<GraphW> graph)
 IcebugGraph::IcebugGraph(std::unique_ptr<GraphR> graph)
     : storage_(std::move(graph)), view_(make_view(storage_)) {}
 
+IcebugGraph::IcebugGraph(std::unique_ptr<InducedSubgraphView<GraphW>> view)
+    : storage_(std::move(view)), view_(make_view(storage_)) {}
+
+IcebugGraph::IcebugGraph(std::unique_ptr<InducedSubgraphView<GraphR>> view)
+    : storage_(std::move(view)), view_(make_view(storage_)) {}
+
 Graph &IcebugGraph::graph() { return view_; }
 const Graph &IcebugGraph::graph() const { return view_; }
 
 GraphW &IcebugGraph::mutable_graph() {
     auto *gw = std::get_if<std::unique_ptr<GraphW>>(&storage_);
     if (gw == nullptr) {
-        throw std::runtime_error("operation requires a mutable GraphW, not a read-only GraphR");
+        throw std::runtime_error("operation requires a mutable GraphW");
     }
     return **gw;
+}
+
+namespace {
+
+template <typename T>
+constexpr bool is_view_v =
+    std::is_same_v<T, InducedSubgraphView<GraphW>> || std::is_same_v<T, InducedSubgraphView<GraphR>>;
+
+template <typename T>
+constexpr bool is_concrete_v = std::is_same_v<T, GraphW> || std::is_same_v<T, GraphR>;
+
+std::vector<node> to_node_vector(rust::Slice<const uint64_t> nodes) {
+    return std::vector<node>(nodes.data(), nodes.data() + nodes.size());
+}
+
+} // namespace
+
+std::unique_ptr<IcebugGraph> IcebugGraph::induced_subgraph(rust::Slice<const uint64_t> nodes) const {
+    auto subset = to_node_vector(nodes);
+    return std::visit(
+        [&](const auto &arm) -> std::unique_ptr<IcebugGraph> {
+            using T = std::decay_t<decltype(*arm)>;
+            if constexpr (std::is_same_v<T, GraphW>) {
+                return std::make_unique<IcebugGraph>(
+                    std::make_unique<InducedSubgraphView<GraphW>>(*arm, subset));
+            } else if constexpr (std::is_same_v<T, GraphR>) {
+                return std::make_unique<IcebugGraph>(
+                    std::make_unique<InducedSubgraphView<GraphR>>(*arm, subset));
+            } else {
+                // A view over a view is not a ReferenceGraph arm; nesting is unsupported.
+                throw std::runtime_error(
+                    "induced_subgraph over an induced subgraph is not supported");
+            }
+        },
+        storage_);
+}
+
+void IcebugGraph::induced_add_nodes(rust::Slice<const uint64_t> nodes) {
+    auto subset = to_node_vector(nodes);
+    std::visit(
+        [&](auto &arm) {
+            using T = std::decay_t<decltype(*arm)>;
+            if constexpr (is_view_v<T>) {
+                arm->addNodes(subset);
+            } else {
+                throw std::runtime_error("induced_add_nodes requires an InducedSubgraph");
+            }
+        },
+        storage_);
+}
+
+void IcebugGraph::induced_remove_nodes(rust::Slice<const uint64_t> nodes) {
+    auto subset = to_node_vector(nodes);
+    std::visit(
+        [&](auto &arm) {
+            using T = std::decay_t<decltype(*arm)>;
+            if constexpr (is_view_v<T>) {
+                arm->removeNodes(subset);
+            } else {
+                throw std::runtime_error("induced_remove_nodes requires an InducedSubgraph");
+            }
+        },
+        storage_);
+}
+
+rust::Vec<uint64_t> IcebugGraph::induced_node_subset() const {
+    return std::visit(
+        [&](const auto &arm) -> rust::Vec<uint64_t> {
+            using T = std::decay_t<decltype(*arm)>;
+            if constexpr (is_view_v<T>) {
+                rust::Vec<uint64_t> out;
+                const auto &members = arm->getNodeSubset();
+                out.reserve(members.size());
+                for (auto u : members)
+                    out.push_back(static_cast<uint64_t>(u));
+                return out;
+            } else {
+                throw std::runtime_error("induced_node_subset requires an InducedSubgraph");
+            }
+        },
+        storage_);
+}
+
+rust::Vec<uint64_t> IcebugGraph::induced_frontier() const {
+    return std::visit(
+        [&](const auto &arm) -> rust::Vec<uint64_t> {
+            using T = std::decay_t<decltype(*arm)>;
+            if constexpr (is_view_v<T>) {
+                rust::Vec<uint64_t> out;
+                auto frontier = arm->frontier();
+                out.reserve(frontier.size());
+                for (auto u : frontier)
+                    out.push_back(static_cast<uint64_t>(u));
+                return out;
+            } else {
+                throw std::runtime_error("induced_frontier requires an InducedSubgraph");
+            }
+        },
+        storage_);
+}
+
+std::unique_ptr<IcebugGraph> IcebugGraph::induced_realize(bool compact) const {
+    return std::visit(
+        [&](const auto &arm) -> std::unique_ptr<IcebugGraph> {
+            using T = std::decay_t<decltype(*arm)>;
+            if constexpr (is_view_v<T>) {
+                return std::make_unique<IcebugGraph>(std::make_unique<GraphW>(arm->realize(compact)));
+            } else {
+                throw std::runtime_error("induced_realize requires an InducedSubgraph");
+            }
+        },
+        storage_);
 }
 
 Betweenness::Betweenness(const IcebugGraph &graph, bool normalized, bool compute_edge_centrality)
@@ -345,5 +469,30 @@ void leiden_load_move_scoring_extension(Leiden &algo, rust::Str path) {
     algo.algo.loadMoveScoringExtension(to_string(path));
 }
 void leiden_unload_move_scoring_extension(Leiden &algo) { algo.algo.unloadMoveScoringExtension(); }
+
+std::unique_ptr<IcebugGraph> new_induced_subgraph(const IcebugGraph &base,
+                                                  rust::Slice<const uint64_t> nodes) {
+    return base.induced_subgraph(nodes);
+}
+
+void induced_add_nodes(IcebugGraph &graph, rust::Slice<const uint64_t> nodes) {
+    graph.induced_add_nodes(nodes);
+}
+
+void induced_remove_nodes(IcebugGraph &graph, rust::Slice<const uint64_t> nodes) {
+    graph.induced_remove_nodes(nodes);
+}
+
+rust::Vec<uint64_t> induced_node_subset(const IcebugGraph &graph) {
+    return graph.induced_node_subset();
+}
+
+rust::Vec<uint64_t> induced_frontier(const IcebugGraph &graph) {
+    return graph.induced_frontier();
+}
+
+std::unique_ptr<IcebugGraph> induced_realize(const IcebugGraph &graph, bool compact) {
+    return graph.induced_realize(compact);
+}
 
 } // namespace icebug_rust
